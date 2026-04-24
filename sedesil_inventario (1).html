@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SEDESIL — Control de Inventario</title>
+
+<!-- Firebase SDK (compat, no requiere bundler) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:system-ui,-apple-system,sans-serif;color:#1a1a1a;font-size:14px;background:#f0f2f5;min-height:100vh}
+.app{max-width:1100px;margin:0 auto;background:#fff;min-height:100vh;box-shadow:0 0 40px rgba(0,0,0,0.08)}
+.header{background:linear-gradient(135deg,#185FA5,#0C447C);color:#fff;padding:16px 24px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.header-left{display:flex;align-items:center;gap:12px}
+.header-logo{width:44px;height:44px;background:#fff;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#185FA5;flex-shrink:0}
+.header h1{font-size:18px;font-weight:600}
+.header p{font-size:12px;opacity:0.8;margin-top:2px}
+.db-status{display:flex;align-items:center;gap:6px;font-size:12px;background:rgba(255,255,255,0.15);padding:5px 12px;border-radius:20px}
+.db-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0}
+.db-dot.offline{background:#f87171}
+.db-dot.loading{background:#fbbf24;animation:pulse 1s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.nav{display:flex;background:#f8f9fa;border-bottom:1px solid #e5e7eb}
+.nav button{flex:1;padding:12px 8px;border:none;background:transparent;cursor:pointer;font-size:13px;color:#6b7280;border-bottom:3px solid transparent;transition:all .15s;font-family:inherit}
+.nav button:hover{color:#185FA5;background:#fff}
+.nav button.active{color:#185FA5;border-bottom-color:#185FA5;background:#fff;font-weight:500}
+.content{padding:20px 24px}
+.card{background:#fff;border:1px solid #e5e7eb;border-radius:12px;padding:16px;margin-bottom:14px}
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+.metric{background:#f8f9fa;border-radius:10px;padding:14px;text-align:center;border:1px solid #e5e7eb}
+.metric-val{font-size:26px;font-weight:600;line-height:1}
+.metric-lbl{font-size:11px;color:#6b7280;margin-top:4px}
+.btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border:1px solid #d1d5db;border-radius:8px;background:#fff;cursor:pointer;font-size:13px;color:#374151;transition:all .1s;font-family:inherit;white-space:nowrap}
+.btn:hover{background:#f9fafb;border-color:#9ca3af}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn-primary{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-primary:hover:not(:disabled){background:#0C447C;border-color:#0C447C}
+.btn-danger{color:#A32D2D;border-color:#FCA5A5}
+.btn-danger:hover{background:#FEF2F2}
+.btn-sm{padding:5px 10px;font-size:12px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;padding:10px 12px;font-weight:600;font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;border-bottom:1px solid #e5e7eb;background:#f9fafb}
+td{padding:10px 12px;border-bottom:1px solid #f3f4f6;vertical-align:middle}
+tr:last-child td{border-bottom:none}
+tr:hover td{background:#f9fafb}
+.badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
+.badge-ok{background:#DCFCE7;color:#166534}
+.badge-low{background:#FEF9C3;color:#854D0E}
+.badge-critical{background:#FEE2E2;color:#991B1B}
+.badge-entrada{background:#DCFCE7;color:#166534}
+.badge-salida{background:#DBEAFE;color:#1E40AF}
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:100}
+.modal{background:#fff;border-radius:14px;padding:24px;width:460px;max-width:95vw;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2)}
+.modal h3{font-size:16px;font-weight:600;margin-bottom:18px;color:#111827}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:500;color:#374151;margin-bottom:5px}
+.field input,.field select{width:100%;padding:9px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;color:#111827;outline:none;font-family:inherit;background:#fff}
+.field input:focus,.field select:focus{border-color:#185FA5;box-shadow:0 0 0 3px rgba(24,95,165,0.12)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.alert-banner{border-radius:10px;padding:11px 16px;margin-bottom:10px;display:flex;align-items:center;gap:10px;font-size:13px}
+.alert-ok{background:#F0FDF4;border:1px solid #86EFAC;color:#166534}
+.alert-warn{background:#FFFBEB;border:1px solid #FCD34D;color:#92400E}
+.alert-crit{background:#FEF2F2;border:1px solid #FCA5A5;color:#991B1B}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;gap:12px;flex-wrap:wrap}
+.section-title{font-size:15px;font-weight:600;color:#111827}
+.search-input{padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;color:#111827;outline:none;width:220px;font-family:inherit;background:#fff}
+.search-input:focus{border-color:#185FA5;box-shadow:0 0 0 3px rgba(24,95,165,0.12)}
+.registro-row{display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid #f3f4f6}
+.registro-row:last-child{border-bottom:none}
+.reg-icon{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.reg-info p{font-size:13px;font-weight:500;color:#111827}
+.reg-info span{font-size:12px;color:#6b7280}
+.reg-meta{text-align:right;font-size:12px;color:#6b7280;min-width:80px}
+.empty{text-align:center;padding:40px;color:#9ca3af;font-size:13px}
+.loading-screen{text-align:center;padding:60px;color:#6b7280}
+.spinner{width:36px;height:36px;border:3px solid #e5e7eb;border-top-color:#185FA5;border-radius:50%;animation:spin .7s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.cat-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
+.cat-btn{padding:5px 12px;border-radius:20px;border:1px solid #d1d5db;background:#fff;cursor:pointer;font-size:12px;color:#374151;font-family:inherit;transition:all .1s}
+.cat-btn:hover{border-color:#185FA5;color:#185FA5}
+.cat-btn.active{background:#185FA5;color:#fff;border-color:#185FA5}
+.alert-card{border-radius:12px;padding:16px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.alert-card-crit{background:#FEF2F2;border:1px solid #FCA5A5}
+.alert-card-warn{background:#FFFBEB;border:1px solid #FCD34D}
+.modal-footer{display:flex;gap:8px;justify-content:flex-end;margin-top:20px;padding-top:16px;border-top:1px solid #f3f4f6}
+.toast{position:fixed;bottom:24px;right:24px;background:#1f2937;color:#fff;padding:10px 18px;border-radius:10px;font-size:13px;z-index:999;box-shadow:0 4px 20px rgba(0,0,0,0.2);animation:fadeUp .2s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@media(max-width:640px){
+  .metric-grid{grid-template-columns:repeat(2,1fr)}
+  .field-row{grid-template-columns:1fr}
+  .search-input{width:100%}
+  .section-header{flex-direction:column;align-items:flex-start}
+  td,th{padding:8px 8px;font-size:12px}
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <div class="header">
+    <div class="header-left">
+      <div class="header-logo">SD</div>
+      <div>
+        <h1>SEDESIL — Control de Inventario</h1>
+        <p>Sistema de gestión de insumos de oficina</p>
+      </div>
+    </div>
+    <div class="db-status">
+      <div class="db-dot loading" id="db-dot"></div>
+      <span id="db-label">Conectando...</span>
+    </div>
+  </div>
+
+  <div class="nav">
+    <button class="active" onclick="showTab('dashboard')">📊 Panel</button>
+    <button onclick="showTab('inventario')">📦 Inventario</button>
+    <button onclick="showTab('registros')">📋 Registros</button>
+    <button onclick="showTab('alertas')">🔔 Alertas</button>
+  </div>
+
+  <div id="tab-content" class="content">
+    <div class="loading-screen">
+      <div class="spinner"></div>
+      <p>Cargando datos desde Firebase...</p>
+    </div>
+  </div>
+</div>
+
+<div id="modal-container"></div>
+
+<script>
+// ═══════════════════════════════════════════════════
+//  FIREBASE CONFIG
+// ═══════════════════════════════════════════════════
+const firebaseConfig = {
+  apiKey: "AIzaSyA9n9srk2mSl3XtsdTjvboXKfx-pVuVXwo",
+  authDomain: "inventariooficina-39fae.firebaseapp.com",
+  projectId: "inventariooficina-39fae",
+  storageBucket: "inventariooficina-39fae.firebasestorage.app",
+  messagingSenderId: "1015287781430",
+  appId: "1:1015287781430:web:fb27a75c6cbee6e4c32097",
+  measurementId: "G-V3J981RXJE"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+const COL_INSUMOS   = db.collection('insumos');
+const COL_REGISTROS = db.collection('registros');
+
+// ═══════════════════════════════════════════════════
+//  CATEGORÍAS  (sin "Escritura" — cae en Papelería)
+// ═══════════════════════════════════════════════════
+const CATS = [
+  'Papelería',
+  'Impresión',
+  'Limpieza',
+  'Cómputo',
+  'EPP',
+  'Uniformes',
+  'Otros'
+];
+
+// ═══════════════════════════════════════════════════
+//  STATE
+// ═══════════════════════════════════════════════════
+const state = {
+  tab: 'dashboard',
+  insumos: [],
+  registros: [],
+  search: '',
+  filterCat: 'Todas'
+};
+
+// ═══════════════════════════════════════════════════
+//  DB STATUS
+// ═══════════════════════════════════════════════════
+function setDbStatus(online) {
+  const dot = document.getElementById('db-dot');
+  const lbl = document.getElementById('db-label');
+  if (!dot || !lbl) return;
+  dot.className = 'db-dot' + (online ? '' : ' offline');
+  lbl.textContent = online ? 'Firebase conectado' : 'Sin conexión';
+}
+
+// ═══════════════════════════════════════════════════
+//  REALTIME LISTENERS
+// ═══════════════════════════════════════════════════
+function initListeners() {
+  // Insumos — orden alfabético
+  COL_INSUMOS.orderBy('nombre').onSnapshot(snap => {
+    state.insumos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    setDbStatus(true);
+    render();
+  }, err => {
+    console.error('insumos:', err);
+    setDbStatus(false);
+  });
+
+  // Registros — más reciente primero, máximo 300
+  COL_REGISTROS.orderBy('fecha', 'desc').limit(300).onSnapshot(snap => {
+    state.registros = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    render();
+  }, err => console.error('registros:', err));
+}
+
+// ═══════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════
+function getStatus(ins) {
+  if (ins.stock === 0)          return 'critical';
+  if (ins.stock < ins.minimo)   return 'low';
+  return 'ok';
+}
+const statusLabel = s => ({ ok: 'Normal', low: 'Stock bajo', critical: 'Sin stock' }[s]);
+function statusBadge(ins) {
+  const s   = getStatus(ins);
+  const cls = { ok: 'badge-ok', low: 'badge-low', critical: 'badge-critical' }[s];
+  return `<span class="badge ${cls}">${statusLabel(s)}</span>`;
+}
+function initials(name) {
+  return (name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toUpperCase();
+}
+function fmt(ts) {
+  if (!ts) return '—';
+  try {
+    const d = ts.toDate ? ts.toDate() : new Date(ts);
+    return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+  } catch { return String(ts); }
+}
+function toast(msg) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2800);
+}
+function showLoading(btn) {
+  if (!btn) return;
+  btn.disabled = true;
+  btn.dataset.orig = btn.textContent;
+  btn.textContent = 'Guardando...';
+}
+function stopLoading(btn) {
+  if (!btn) return;
+  btn.disabled = false;
+  btn.textContent = btn.dataset.orig || 'Guardar';
+}
+
+// ═══════════════════════════════════════════════════
+//  NAVEGACIÓN
+// ═══════════════════════════════════════════════════
+function showTab(t) {
+  state.tab = t;
+  document.querySelectorAll('.nav button').forEach((b, i) => {
+    b.classList.toggle('active', ['dashboard','inventario','registros','alertas'][i] === t);
+  });
+  render();
+}
+
+// ═══════════════════════════════════════════════════
+//  RENDER PRINCIPAL
+// ═══════════════════════════════════════════════════
+function render() {
+  const el = document.getElementById('tab-content');
+  if (!el) return;
+  const map = {
+    dashboard:  renderDashboard,
+    inventario: renderInventario,
+    registros:  renderRegistros,
+    alertas:    renderAlertas
+  };
+  el.innerHTML = (map[state.tab] || renderDashboard)();
+}
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const total = state.insumos.length;
+  const crit  = state.insumos.filter(i => getStatus(i) === 'critical').length;
+  const low   = state.insumos.filter(i => getStatus(i) === 'low').length;
+  const ok    = state.insumos.filter(i => getStatus(i) === 'ok').length;
+
+  let alerts = '';
+  state.insumos.filter(i => getStatus(i) === 'critical').forEach(i => {
+    alerts += `<div class="alert-banner alert-crit">⛔ <strong>${i.nombre}</strong> — Sin stock (${i.stock} ${i.unidad}). Mínimo requerido: ${i.minimo}</div>`;
+  });
+  state.insumos.filter(i => getStatus(i) === 'low').forEach(i => {
+    alerts += `<div class="alert-banner alert-warn">⚠️ <strong>${i.nombre}</strong> — Stock bajo (${i.stock} ${i.unidad}). Mínimo requerido: ${i.minimo}</div>`;
+  });
+  if (!alerts) alerts = `<div class="alert-banner alert-ok">✅ Todos los insumos están en buen nivel de stock.</div>`;
+
+  const recents = state.registros.slice(0, 6);
+  let regRows = recents.map(r => {
+    const bg    = r.tipo === 'entrada' ? '#DCFCE7' : '#DBEAFE';
+    const color = r.tipo === 'entrada' ? '#166534' : '#1E40AF';
+    return `<div class="registro-row">
+      <div class="reg-icon" style="background:${bg};color:${color}">${initials(r.persona)}</div>
+      <div class="reg-info">
+        <p>${r.insumoNombre || '—'}</p>
+        <span>${r.persona} · ${r.tipo === 'entrada' ? '+' : '-'}${r.cantidad} · ${fmt(r.fecha)}</span>
+      </div>
+      <div class="reg-meta">
+        <span class="badge ${r.tipo === 'entrada' ? 'badge-entrada' : 'badge-salida'}">${r.tipo}</span><br>
+        <span style="font-size:11px">${r.nota || ''}</span>
+      </div>
+    </div>`;
+  }).join('');
+  if (!recents.length) regRows = '<div class="empty">Sin registros aún</div>';
+
+  return `
+    <div class="metric-grid">
+      <div class="metric"><div class="metric-val" style="color:#185FA5">${total}</div><div class="metric-lbl">Total insumos</div></div>
+      <div class="metric"><div class="metric-val" style="color:#166534">${ok}</div><div class="metric-lbl">En buen nivel</div></div>
+      <div class="metric"><div class="metric-val" style="color:#92400E">${low}</div><div class="metric-lbl">Stock bajo</div></div>
+      <div class="metric"><div class="metric-val" style="color:#991B1B">${crit}</div><div class="metric-lbl">Sin stock</div></div>
+    </div>
+    ${alerts}
+    <div class="card">
+      <div class="section-header">
+        <span class="section-title">Movimientos recientes</span>
+        <button class="btn btn-sm" onclick="showTab('registros')">Ver todos →</button>
+      </div>
+      ${regRows}
+    </div>`;
+}
+
+// ─── INVENTARIO ───────────────────────────────────────────────────────────────
+function renderInventario() {
+  const cats     = ['Todas', ...CATS];
+  const filtered = state.insumos.filter(i => {
+    const matchCat    = state.filterCat === 'Todas' || i.categoria === state.filterCat;
+    const matchSearch = !state.search || i.nombre.toLowerCase().includes(state.search.toLowerCase());
+    return matchCat && matchSearch;
+  });
+
+  const rows = filtered.map(i => `<tr>
+    <td>
+      <strong>${i.nombre}</strong>
+      ${i.descripcion ? `<br><span style="font-size:11px;color:#6b7280">${i.descripcion}</span>` : ''}
+    </td>
+    <td>${i.categoria}</td>
+    <td><strong>${i.stock}</strong> <span style="color:#6b7280;font-size:12px">${i.unidad}</span></td>
+    <td>${i.minimo} <span style="color:#6b7280;font-size:12px">${i.unidad}</span></td>
+    <td>${statusBadge(i)}</td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn btn-sm" onclick="openSalida('${i.id}')" style="margin-right:3px">↓ Salida</button>
+      <button class="btn btn-sm" onclick="openEntrada('${i.id}')" style="margin-right:3px">↑ Entrada</button>
+      <button class="btn btn-sm" onclick="openEdit('${i.id}')" style="margin-right:3px">✏️</button>
+      <button class="btn btn-sm btn-danger" onclick="deleteInsumo('${i.id}')">🗑️</button>
+    </td>
+  </tr>`).join('');
+
+  const catBtns = cats.map(c =>
+    `<button class="cat-btn ${state.filterCat === c ? 'active' : ''}" onclick="filterCat('${c}')">${c}</button>`
+  ).join('');
+
+  return `
+    <div class="section-header">
+      <span class="section-title">Insumos registrados (${filtered.length})</span>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <input class="search-input" placeholder="🔍 Buscar insumo..." value="${state.search}" oninput="searchInsumos(this.value)">
+        <button class="btn btn-primary" onclick="openAdd()">+ Agregar insumo</button>
+      </div>
+    </div>
+    <div class="cat-filters">${catBtns}</div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${filtered.length
+        ? `<div style="overflow-x:auto"><table>
+            <thead><tr><th>Nombre</th><th>Categoría</th><th>Stock actual</th><th>Mínimo</th><th>Estado</th><th style="text-align:right">Acciones</th></tr></thead>
+            <tbody>${rows}</tbody>
+           </table></div>`
+        : '<div class="empty">Sin insumos que mostrar</div>'}
+    </div>`;
+}
+
+// ─── REGISTROS ────────────────────────────────────────────────────────────────
+function renderRegistros() {
+  const rows = state.registros.map(r => `<tr>
+    <td>${fmt(r.fecha)}</td>
+    <td><strong>${r.insumoNombre || '—'}</strong></td>
+    <td>${r.persona}</td>
+    <td><span class="badge ${r.tipo === 'entrada' ? 'badge-entrada' : 'badge-salida'}">${r.tipo === 'entrada' ? 'Entrada' : 'Salida'}</span></td>
+    <td><strong>${r.cantidad}</strong></td>
+    <td style="color:#6b7280">${r.nota || '—'}</td>
+  </tr>`).join('');
+
+  return `
+    <div class="section-header">
+      <span class="section-title">Historial de movimientos (${state.registros.length})</span>
+      <button class="btn btn-primary" onclick="openRegistroManual()">+ Registrar movimiento</button>
+    </div>
+    <div class="card" style="padding:0;overflow:hidden">
+      ${rows
+        ? `<div style="overflow-x:auto"><table>
+            <thead><tr><th>Fecha</th><th>Insumo</th><th>Persona</th><th>Tipo</th><th>Cantidad</th><th>Nota / Motivo</th></tr></thead>
+            <tbody>${rows}</tbody>
+           </table></div>`
+        : '<div class="empty">Sin registros aún</div>'}
+    </div>`;
+}
+
+// ─── ALERTAS ──────────────────────────────────────────────────────────────────
+function renderAlertas() {
+  const crit = state.insumos.filter(i => getStatus(i) === 'critical');
+  const low  = state.insumos.filter(i => getStatus(i) === 'low');
+
+  if (!crit.length && !low.length) {
+    return `<div class="alert-banner alert-ok" style="font-size:14px;padding:20px">
+      ✅ <strong>Sin alertas activas.</strong> Todos los insumos tienen stock suficiente.
+    </div>`;
+  }
+
+  let html = '';
+  if (crit.length) {
+    html += `<div class="section-title" style="margin-bottom:10px;color:#991B1B">⛔ Sin stock (${crit.length})</div>`;
+    crit.forEach(i => { html += `
+      <div class="alert-card alert-card-crit">
+        <div>
+          <p style="font-weight:600;font-size:13px">${i.nombre}</p>
+          <span style="font-size:12px;color:#6b7280">${i.categoria} · Stock: <strong>${i.stock}</strong> ${i.unidad} · Mínimo: ${i.minimo} ${i.unidad}</span>
+        </div>
+        <button class="btn btn-primary btn-sm" onclick="openEntrada('${i.id}')">↑ Reponer stock</button>
+      </div>`; });
+  }
+  if (low.length) {
+    html += `<div class="section-title" style="margin:16px 0 10px;color:#92400E">⚠️ Stock bajo (${low.length})</div>`;
+    low.forEach(i => { html += `
+      <div class="alert-card alert-card-warn">
+        <div>
+          <p style="font-weight:600;font-size:13px">${i.nombre}</p>
+          <span style="font-size:12px;color:#6b7280">${i.categoria} · Stock: <strong>${i.stock}</strong> ${i.unidad} · Mínimo: ${i.minimo} ${i.unidad}</span>
+        </div>
+        <button class="btn btn-sm" style="border-color:#FCD34D" onclick="openEntrada('${i.id}')">↑ Reponer</button>
+      </div>`; });
+  }
+  return `<div class="section-header"><span class="section-title">Alertas de inventario</span></div>${html}`;
+}
+
+// ═══════════════════════════════════════════════════
+//  FILTROS
+// ═══════════════════════════════════════════════════
+function filterCat(c)      { state.filterCat = c; render(); }
+function searchInsumos(v)  { state.search = v; render(); }
+
+// ═══════════════════════════════════════════════════
+//  CRUD — AGREGAR
+// ═══════════════════════════════════════════════════
+function openAdd() {
+  const opts = CATS.map(c => `<option>${c}</option>`).join('');
+  showModal(`<h3>➕ Agregar nuevo insumo</h3>
+    <div class="field"><label>Nombre del insumo *</label><input id="f-nombre" placeholder="Ej: Plumones negros punta gruesa"></div>
+    <div class="field-row">
+      <div class="field"><label>Categoría</label><select id="f-cat">${opts}</select></div>
+      <div class="field"><label>Unidad de medida</label><input id="f-unidad" placeholder="pza, par, caja..."></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Stock inicial</label><input id="f-stock" type="number" min="0" value="0"></div>
+      <div class="field"><label>Mínimo para alerta</label><input id="f-min" type="number" min="0" value="5"></div>
+    </div>
+    <div class="field"><label>Descripción (marca, talla, especificaciones)</label><input id="f-desc" placeholder="Opcional..."></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-add" onclick="saveAdd()">Guardar insumo</button>
+    </div>`);
+}
+
+async function saveAdd() {
+  const n = document.getElementById('f-nombre').value.trim();
+  if (!n) { alert('Por favor ingresa el nombre del insumo'); return; }
+  const btn = document.getElementById('btn-save-add');
+  showLoading(btn);
+  try {
+    await COL_INSUMOS.add({
+      nombre:      n,
+      categoria:   document.getElementById('f-cat').value,
+      unidad:      document.getElementById('f-unidad').value.trim() || 'pza',
+      stock:       parseInt(document.getElementById('f-stock').value) || 0,
+      minimo:      parseInt(document.getElementById('f-min').value) || 5,
+      descripcion: document.getElementById('f-desc').value.trim(),
+      creadoEn:    firebase.firestore.FieldValue.serverTimestamp()
+    });
+    toast('✅ Insumo agregado correctamente');
+    closeModal();
+  } catch (e) { stopLoading(btn); alert('Error al guardar: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════
+//  CRUD — EDITAR
+// ═══════════════════════════════════════════════════
+function openEdit(id) {
+  const i = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  const opts = CATS.map(c => `<option ${c === i.categoria ? 'selected' : ''}>${c}</option>`).join('');
+  showModal(`<h3>✏️ Editar insumo</h3>
+    <div class="field"><label>Nombre del insumo *</label><input id="e-nombre" value="${i.nombre}"></div>
+    <div class="field-row">
+      <div class="field"><label>Categoría</label><select id="e-cat">${opts}</select></div>
+      <div class="field"><label>Unidad</label><input id="e-unidad" value="${i.unidad}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Stock actual</label><input id="e-stock" type="number" min="0" value="${i.stock}"></div>
+      <div class="field"><label>Mínimo requerido</label><input id="e-min" type="number" min="0" value="${i.minimo}"></div>
+    </div>
+    <div class="field"><label>Descripción</label><input id="e-desc" value="${i.descripcion || ''}"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-save-edit" onclick="saveEdit('${id}')">Guardar cambios</button>
+    </div>`);
+}
+
+async function saveEdit(id) {
+  const n = document.getElementById('e-nombre').value.trim();
+  if (!n) { alert('El nombre no puede estar vacío'); return; }
+  const btn = document.getElementById('btn-save-edit');
+  showLoading(btn);
+  try {
+    await COL_INSUMOS.doc(id).update({
+      nombre:      n,
+      categoria:   document.getElementById('e-cat').value,
+      unidad:      document.getElementById('e-unidad').value.trim() || 'pza',
+      stock:       parseInt(document.getElementById('e-stock').value) || 0,
+      minimo:      parseInt(document.getElementById('e-min').value) || 0,
+      descripcion: document.getElementById('e-desc').value.trim()
+    });
+    toast('✅ Insumo actualizado');
+    closeModal();
+  } catch (e) { stopLoading(btn); alert('Error al actualizar: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════
+//  CRUD — ELIMINAR
+// ═══════════════════════════════════════════════════
+async function deleteInsumo(id) {
+  const i = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  if (!confirm(`¿Eliminar "${i.nombre}" del inventario?\n\nEsta acción no se puede deshacer.`)) return;
+  try {
+    await COL_INSUMOS.doc(id).delete();
+    toast('🗑️ Insumo eliminado');
+  } catch (e) { alert('Error al eliminar: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════
+//  MOVIMIENTOS — ENTRADA / SALIDA
+// ═══════════════════════════════════════════════════
+function openEntrada(id) {
+  const i = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  showModal(`<h3>↑ Registrar entrada de stock</h3>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:14px">
+      Insumo: <strong>${i.nombre}</strong> · Stock actual: <strong>${i.stock} ${i.unidad}</strong>
+    </p>
+    <div class="field"><label>Cantidad a agregar (${i.unidad}) *</label><input id="m-cant" type="number" min="1" value="1"></div>
+    <div class="field"><label>Persona responsable *</label><input id="m-persona" placeholder="Nombre completo"></div>
+    <div class="field"><label>Nota (proveedor, compra, motivo...)</label><input id="m-nota" placeholder="Opcional..."></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mov" onclick="saveMovimiento('${id}','entrada')">Registrar entrada</button>
+    </div>`);
+}
+
+function openSalida(id) {
+  const i = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  showModal(`<h3>↓ Registrar salida de insumo</h3>
+    <p style="font-size:13px;color:#6b7280;margin-bottom:14px">
+      Insumo: <strong>${i.nombre}</strong> · Stock disponible: <strong>${i.stock} ${i.unidad}</strong>
+    </p>
+    <div class="field"><label>Cantidad a entregar (${i.unidad}) *</label><input id="m-cant" type="number" min="1" max="${i.stock}" value="1"></div>
+    <div class="field"><label>Se entrega a (nombre completo) *</label><input id="m-persona" placeholder="Nombre de quien recibe"></div>
+    <div class="field"><label>Área / Motivo *</label><input id="m-nota" placeholder="Capacitación, oficina, evento..."></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-mov" onclick="saveMovimiento('${id}','salida')">Registrar salida</button>
+    </div>`);
+}
+
+async function saveMovimiento(id, tipo) {
+  const i = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  const cant    = parseInt(document.getElementById('m-cant').value) || 0;
+  const persona = document.getElementById('m-persona').value.trim();
+  const nota    = document.getElementById('m-nota').value.trim();
+  if (!cant || cant < 1)              { alert('Ingresa una cantidad válida (mayor a 0)'); return; }
+  if (!persona)                       { alert('Ingresa el nombre de la persona'); return; }
+  if (tipo === 'salida' && cant > i.stock) { alert(`Stock insuficiente. Disponible: ${i.stock} ${i.unidad}`); return; }
+
+  const btn = document.getElementById('btn-mov');
+  showLoading(btn);
+  try {
+    const nuevoStock = tipo === 'entrada' ? i.stock + cant : i.stock - cant;
+    const batch = db.batch();
+    // Actualiza stock atómicamente
+    batch.update(COL_INSUMOS.doc(id), { stock: nuevoStock });
+    // Registra movimiento
+    batch.set(COL_REGISTROS.doc(), {
+      insumoId:    id,
+      insumoNombre: i.nombre,
+      persona,
+      cantidad: cant,
+      tipo,
+      nota,
+      fecha: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await batch.commit();
+    toast(tipo === 'entrada' ? '✅ Entrada registrada' : '✅ Salida registrada');
+    closeModal();
+  } catch (e) { stopLoading(btn); alert('Error: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════
+//  MOVIMIENTO MANUAL (desde tab Registros)
+// ═══════════════════════════════════════════════════
+function openRegistroManual() {
+  if (!state.insumos.length) { alert('Primero agrega insumos al inventario'); return; }
+  const opts = state.insumos
+    .map(i => `<option value="${i.id}">${i.nombre} (stock: ${i.stock} ${i.unidad})</option>`)
+    .join('');
+  showModal(`<h3>📋 Registrar movimiento</h3>
+    <div class="field"><label>Insumo *</label><select id="r-ins">${opts}</select></div>
+    <div class="field-row">
+      <div class="field"><label>Tipo de movimiento</label>
+        <select id="r-tipo">
+          <option value="salida">↓ Salida (se entrega)</option>
+          <option value="entrada">↑ Entrada (se recibe)</option>
+        </select>
+      </div>
+      <div class="field"><label>Cantidad *</label><input id="r-cant" type="number" min="1" value="1"></div>
+    </div>
+    <div class="field"><label>Persona *</label><input id="r-persona" placeholder="Nombre completo"></div>
+    <div class="field"><label>Nota / Motivo</label><input id="r-nota" placeholder="Área, evento, proveedor..."></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btn-reg-manual" onclick="saveRegistroManual()">Guardar movimiento</button>
+    </div>`);
+}
+
+async function saveRegistroManual() {
+  const id      = document.getElementById('r-ins').value;
+  const i       = state.insumos.find(x => x.id === id);
+  if (!i) return;
+  const tipo    = document.getElementById('r-tipo').value;
+  const cant    = parseInt(document.getElementById('r-cant').value) || 0;
+  const persona = document.getElementById('r-persona').value.trim();
+  const nota    = document.getElementById('r-nota').value.trim();
+  if (!cant || cant < 1)                   { alert('Ingresa una cantidad válida'); return; }
+  if (!persona)                            { alert('Ingresa el nombre de la persona'); return; }
+  if (tipo === 'salida' && cant > i.stock) { alert(`Stock insuficiente. Disponible: ${i.stock} ${i.unidad}`); return; }
+
+  const btn = document.getElementById('btn-reg-manual');
+  showLoading(btn);
+  try {
+    const nuevoStock = tipo === 'entrada' ? i.stock + cant : i.stock - cant;
+    const batch = db.batch();
+    batch.update(COL_INSUMOS.doc(id), { stock: nuevoStock });
+    batch.set(COL_REGISTROS.doc(), {
+      insumoId:    id,
+      insumoNombre: i.nombre,
+      persona,
+      cantidad: cant,
+      tipo,
+      nota,
+      fecha: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    await batch.commit();
+    toast('✅ Movimiento registrado');
+    closeModal();
+  } catch (e) { stopLoading(btn); alert('Error: ' + e.message); }
+}
+
+// ═══════════════════════════════════════════════════
+//  MODAL
+// ═══════════════════════════════════════════════════
+function showModal(html) {
+  document.getElementById('modal-container').innerHTML =
+    `<div class="modal-overlay" onclick="closeModal()">
+       <div class="modal" onclick="event.stopPropagation()">${html}</div>
+     </div>`;
+}
+function closeModal() {
+  document.getElementById('modal-container').innerHTML = '';
+}
+
+// ═══════════════════════════════════════════════════
+//  INICIO
+// ═══════════════════════════════════════════════════
+initListeners();
+</script>
+</body>
+</html>
